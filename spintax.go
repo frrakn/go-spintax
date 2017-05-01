@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
+)
+
+var (
+	slashes = regexp.MustCompile("\\\\(.)")
 )
 
 type Spintax struct {
@@ -49,6 +54,24 @@ type expressionElement struct {
 	expressionType int32
 	str            string
 	spintax        *spintax
+}
+
+func New(expr string) (*Spintax, error) {
+	s := &Spintax{
+		symbolTable: map[string]*expression{},
+	}
+
+	tokens, err := tokenize(expr)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to tokenize expression")
+	}
+
+	err = s.parse(tokens)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to parse tokens")
+	}
+
+	return s, nil
 }
 
 func (s *Spintax) Spin() string {
@@ -115,30 +138,13 @@ func (s *spintax) spin() string {
 	return ""
 }
 
-func New(expr string) (*Spintax, error) {
-	s := &Spintax{
-		symbolTable: map[string]*expression{},
-	}
-
-	tokens, err := tokenize(expr)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to tokenize expression")
-	}
-	err = s.parse(tokens)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to parse tokens")
-	}
-
-	return s, nil
-}
-
 func (s *Spintax) parse(tokens []string) error {
 	expr, ts, err := s.parseExpression(tokens)
 	if err != nil {
 		return errors.Wrap(err, "error parsing expression")
 	}
 	if len(ts) > 0 {
-		return errors.WithMessage(err, "Leftover tokens after expression parse")
+		return errors.New("Leftover tokens after expression parse")
 	}
 
 	s.expression = expr
@@ -180,7 +186,7 @@ func (s *Spintax) parseExpression(tokens []string) (expr *expression, ts []strin
 		default:
 			expr.elements = append(expr.elements, &expressionElement{
 				expressionType: STRING_EXPRESSION,
-				str:            next,
+				str:            slashes.ReplaceAllString(next, "$1"),
 			})
 			ts = ts[1:]
 		}
@@ -354,6 +360,13 @@ func tokenize(expr string) ([]string, error) {
 				break
 			}
 			switch char {
+			case "{":
+				state = OPEN_BRACE
+				if tmp != "" {
+					tokens = append(tokens, tmp)
+				}
+				tmp = char
+				break
 			case ":":
 				state = OPEN_BRACE_COLON
 				tokens = append(tokens, tmp+char)
